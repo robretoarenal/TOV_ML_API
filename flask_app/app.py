@@ -3,8 +3,9 @@ import pandas as pd
 import joblib
 import sys
 import json
-from flask import Flask, escape, jsonify, request, make_response, current_app
-from datetime import timedelta
+import io
+from flask import Flask, escape, jsonify, request, make_response, current_app, send_file, send_from_directory
+from datetime import timedelta, datetime
 from functools import update_wrapper
 import os
 import logging
@@ -23,6 +24,7 @@ from keras.models import load_model
 import tensorflow as tf
 
 app = Flask(__name__)
+
 
 def crossdomain(origin=None, methods=None, headers=None, max_age=21600,
                 attach_to_all=True, automatic_options=True):
@@ -78,10 +80,17 @@ def crossdomain(origin=None, methods=None, headers=None, max_age=21600,
         return update_wrapper(wrapped_function, f)
     return decorator
 
+
 def run_request():
     json_data = request.json
     a_value = json_data["a_key"]
     return "JSON value sent: " + a_value
+
+
+def normalize_input(x, mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)):
+    # x should be RGB with range [0, 255]
+    return ((x / 255) - mean) / std
+
 
 @app.route('/', methods=['GET', 'POST'])
 def main_get():
@@ -91,6 +100,7 @@ def main_get():
     	#return 'The InnoSpark models are up and running. POST request'
         return run_request()
 
+
 @app.route('/predictrfc', methods=['GET', 'POST'])
 def predictrfc():
     """API Call
@@ -98,17 +108,16 @@ def predictrfc():
     try:
         #app.logger.warning('testing warning log')
         print('Entering predictrfc method', file=sys.stderr)
-        
+
         #Reading request json
         requestDict = request.get_json()
         requestJson = json.dumps(requestDict)
-        print(type(requestJson),file=sys.stderr)
-        print(requestJson,file=sys.stderr)
-        
-        
+        print(type(requestJson), file=sys.stderr)
+        print(requestJson, file=sys.stderr)
+
         dfJson = pd.read_json(requestJson, orient='split')
         print(dfJson)
-        
+
         #load model
         rfc = joblib.load('./models/rfc.pkl')
         predictrfc = rfc.predict(dfJson)
@@ -117,7 +126,7 @@ def predictrfc():
         #predictrfc = predictrfc.rename(columns={-1: "Y1", -2: "Y2", "X": "X"})
 
         print(predictrfc.shape)
-        print(predictrfc.columns) 
+        print(predictrfc.columns)
 
         predictionDic = predictrfc.to_dict('records')
 
@@ -125,10 +134,12 @@ def predictrfc():
         responses.status_code = 200
 
     except Exception as e:
-        responses = jsonify(predictions={'error':'some error occured, please try again later!'}, Exception=e)
+        responses = jsonify(predictions={
+                            'error': 'some error occured, please try again later!'}, Exception=e)
         responses.status_code = 404
         #print ('error', e, file=sys.stderr)
     return (responses)
+
 
 @app.route('/predictrfc2', methods=['GET', 'POST'])
 def predictrfc2():
@@ -136,17 +147,16 @@ def predictrfc2():
     """
     #app.logger.warning('testing warning log')
     print('Entering predictrfc method', file=sys.stderr)
-    
+
     #Reading request json
     requestDict = request.get_json()
     requestJson = json.dumps(requestDict)
-    print(type(requestJson),file=sys.stderr)
-    print(requestJson,file=sys.stderr)
-    
-    
+    print(type(requestJson), file=sys.stderr)
+    print(requestJson, file=sys.stderr)
+
     dfJson = pd.read_json(requestJson, orient='records')
     print(dfJson)
-    
+
     #
     print(pathlib.Path(__file__).parent.absolute())
     print(pathlib.Path().absolute())
@@ -164,7 +174,7 @@ def predictrfc2():
     #predictrfc = predictrfc.rename(columns={-1: "Y1", -2: "Y2", "X": "X"})
 
     #print(predictrfc.shape)
-    #print(predictrfc.columns) 
+    #print(predictrfc.columns)
 
     print(type(predictrfc))
     print(predictrfc)
@@ -177,6 +187,7 @@ def predictrfc2():
     responses.status_code = 200
 
     return (responses)
+
 
 @app.route('/predicteyedisease', methods=['POST'])
 def predicteyedisease():
@@ -194,29 +205,122 @@ def predicteyedisease():
 
     #  shape
     #print(numpydata.shape)
-    
-    resized_img= cv2.resize(numpydata[:,:,::-1], (64, 64))
-    reshaped_img = resized_img.reshape(1 ,64 , 64 , -1)
+
+    #resized_img = cv2.resize(numpydata[:, :, ::-1], (64, 64))
+    #reshaped_img = resized_img.reshape(1, 64, 64, -1)
+
+    resized_img = cv2.resize(numpydata[:, :, ::-1], (100, 100))
+    reshaped_img = resized_img.reshape(1, 100, 100, -1)
 
     #load model
     curr_dir_path = pathlib.Path(__file__).parent.absolute()
-    model_path = '/models/sigmoid_final_cataract-90.h5'
+    #model_path = '/models/sigmoid_final_cataract-90.h5'
+    model_path = '/models/accuracy-92size100x100_Threshold_0.56.h5'
     # Convert path to Windows format
     #model_path_win = pathlib.PureWindowsPath(model_path)
-    
+
     model_path_full = str(curr_dir_path) + str(model_path)
 
     #import keras model
     eye_model = load_model(model_path_full)
 
-    cataract_pred= eye_model.predict(reshaped_img)
-    cataract_pred_per = float(cataract_pred) * 100 
+    cataract_pred = eye_model.predict(reshaped_img)
+    cataract_pred_per = float(cataract_pred) * 100
 
     #responses = jsonify(predictions=predictrfc.tolist())
     responses = jsonify(predictions=cataract_pred_per)
     responses.status_code = 200
 
     return (responses)
+
+
+@app.route('/parseimage', methods=['POST'])
+def parseimage():
+    """API Call
+    """
+    #app.logger.warning('testing warning log')
+    print('Entering parseimage method', file=sys.stderr)
+    #img = Image.open(request.files['file'])
+    request_file = request.files['file']
+    request_image = Image.open(request_file)
+    numpydata = np.asarray(request_image)
+
+    # <class 'numpy.ndarray'>
+    #print(type(numpydata))
+
+    #  shape
+    #print(numpydata.shape)
+
+    #resized_img= cv2.resize(numpydata[:,:,::-1], (64, 64))
+    #reshaped_img = resized_img.reshape(1 ,64 , 64 , -1)
+
+    im = numpydata[..., ::-1]
+    #print("Fists:")
+    #print(im.shape)
+    face = im
+    orig_h, orig_w = face.shape[:2]
+    inp = cv2.resize(face, (512, 512))
+    inp = normalize_input(inp)
+    inp = inp[None, ...]
+    #print("second:")
+    #print(inp.shape)
+
+    #load model
+    curr_dir_path = pathlib.Path(__file__).parent.absolute()
+    model_path = '/models/parser_net.h5'
+    # Convert path to Windows format
+    #model_path_win = pathlib.PureWindowsPath(model_path)
+
+    model_path_full = str(curr_dir_path) + str(model_path)
+
+    #import keras model
+    parse_img_model = load_model(model_path_full, custom_objects={'tf': tf})
+
+    parse_img_pred = parse_img_model.predict([inp])[0]
+    #print("parse_img_pred:")
+    #print(parse_img_pred.shape)
+
+    parsing_map = parse_img_pred.argmax(axis=-1)
+
+    #print("third:")
+    #print(parsing_map.shape)
+    parsing_map = cv2.resize(parsing_map.astype(
+        np.uint8), (orig_w, orig_h), interpolation=cv2.INTER_NEAREST)
+    #print("fourth:")
+    #print(parsing_map.shape)
+
+    #Parsed images directory
+    parsed_img_dir = '/parsed_images/'
+    parsed_img_dir_full = str(curr_dir_path) + str(parsed_img_dir)
+
+    #tmp_var =  parsing_map.tolist()
+    #np.savetxt('vb_array.out', parsing_map, delimiter=',')
+
+    print("parsing_map:")
+    print(parsing_map.shape)
+
+    #img_parse = Image.fromarray(parsing_map, 'RGB')
+    img_parse = Image.fromarray(parsing_map)
+    img_parse_name_tmp = datetime.now().strftime("%Y%m%d%H%M%S") + '.jpg'
+    tmp_img_name = parsed_img_dir_full + img_parse_name_tmp
+    img_parse.save(tmp_img_name,  quality=100)
+
+    #TODO: Delete Block
+    #img_parse_ori = Image.fromarray(numpydata)
+    #img_parse_name_tmp_ori = datetime.now().strftime("%Y%m%d%H%M%S") + '_ori'+ '.jpg'
+    #tmp_img_name_ori = parsed_img_dir_full + img_parse_name_tmp_ori
+    #img_parse_ori.save(tmp_img_name_ori,  quality=100)
+
+    #ImgBin =  Image.open(tmp_img_name).tobytes()
+
+    #return send_file(
+    #    io.BytesIO(ImgBin),
+    #    mimetype='image/png',
+    #    as_attachment=True,
+    #    attachment_filename=tmp_img_name)
+
+    return send_from_directory(parsed_img_dir_full, img_parse_name_tmp, as_attachment=True)
+
 
 def main():
     #app.run(debug=True)
@@ -225,6 +329,7 @@ def main():
     logging.info('Started')
     #mylib.do_something()
     logging.info('Finished')
+
 
 if __name__ == '__main__':
     main()
