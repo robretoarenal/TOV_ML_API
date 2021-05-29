@@ -1,11 +1,11 @@
-tensorflow
+tensorflow==2.4.1
 flask
 pandas
 gunicorn
 numpy
 joblib
 scikit-learn
-Keras
+Keras==2.4.3
 opencv-python-headless
 Pillow
 debugpy
