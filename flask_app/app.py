@@ -18,10 +18,13 @@ from sklearn import datasets, linear_model
 from sklearn import metrics
 from sklearn.model_selection import train_test_split
 from PIL import Image
+from base64 import decodebytes, encodebytes, decodestring, encodestring
 import cv2
 #from cv2 import cv2
 from keras.models import load_model
 import tensorflow as tf
+from GazeML_keras import diagnose
+#from EyeDiagnosisLib import GazeML_keras
 
 app = Flask(__name__)
 
@@ -320,6 +323,82 @@ def parseimage():
     #    attachment_filename=tmp_img_name)
 
     return send_from_directory(parsed_img_dir_full, img_parse_name_tmp, as_attachment=True)
+
+def get_response_image(byte_arr):
+    pil_img = Image.fromarray(np.uint8(byte_arr)).convert('RGB')
+    byte_arr_io = io.BytesIO()
+    pil_img.save(byte_arr_io, format='PNG') # convert the PIL image to byte array
+    #encoded_img = encodestring(byte_arr_io.getvalue()) # encode as base64
+    encoded_img = encodebytes(byte_arr_io.getvalue()).decode('ascii') # encode as base64
+    #encoded_img = encodebytes(np.array(pil_img)).decode('ascii') # encode as base64
+    return encoded_img
+
+#This method is just for testing image decoding
+def write_reponse_image(image_64_encode):
+    #Parsed images directory
+    curr_dir_path = pathlib.Path(__file__).parent.absolute()
+    parsed_img_dir = '/parsed_images/'  
+    parsed_img_dir_full = str(curr_dir_path) + str(parsed_img_dir)
+
+    #Decoding image_64_encode
+    #image_64_decode = decodestring(image_64_encode)
+    image_64_decode = decodebytes(image_64_encode.encode("ascii"))
+    image_result_name_tmp = datetime.now().strftime("%Y%m%d%H%M%S%f") + '.jpg'
+    tmp_img_name = parsed_img_dir_full + image_result_name_tmp
+    image_result = open(tmp_img_name, 'wb') # create a writable image and write the decoding result
+    image_result.write(image_64_decode)
+
+@app.route('/eyesDiagnosis', methods=['POST'])
+def eyesDiagnosis():
+    try:
+        print('Entering eyediagnosis method', file=sys.stderr)
+
+        request_file = request.files['file']
+        request_image = Image.open(request_file)
+        numpydata = np.asarray(request_image)
+
+        detect_model_path = 'mtcnn_weights'
+        diagnosis_model_path='accuracy-92size100x100_Threshold_0.56.h5'
+        left_eye_im , left_eye_im_desc , left_eye_im_diagnosis , right_eye_im , right_eye_im_desc , right_eye_im_diagnosis = diagnose.Diagnose().Diagnose_patient(numpydata,detect_model_path,diagnosis_model_path)
+        
+        data = []
+        response_msg = ""
+        if isinstance(left_eye_im, str) or isinstance(right_eye_im, str):
+            response_msg = left_eye_im
+        else:
+            #TODO: Comment these two lines, they're created just to test the way the front end can consume this endpoint
+            write_reponse_image(get_response_image(left_eye_im))
+            write_reponse_image(get_response_image(right_eye_im))
+            
+            response_msg = "success"
+
+            data.append({
+            "left_eye_im": get_response_image(left_eye_im),
+                "left_eye_im_desc": left_eye_im_desc,
+                "left_eye_im_diagnosis": str(left_eye_im_diagnosis[0]),
+                "right_eye_im": get_response_image(right_eye_im),
+                "right_eye_im_desc":right_eye_im_desc,
+                "right_eye_im_diagnosis":str(right_eye_im_diagnosis[0])
+            })
+    except:
+            responses = jsonify(
+                message="failure",
+                category="prediction",
+                data=[],
+                status=400
+            )
+            responses.status_code = 400
+    finally:
+            responses = jsonify(
+                message=response_msg,
+                category="prediction",
+                data=data,
+                status=200
+            )
+            responses.status_code = 200
+
+    return (responses)
+
 
 
 def main():

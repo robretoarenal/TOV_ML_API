@@ -9,3 +9,4 @@ Keras==2.4.3
 opencv-python-headless
 Pillow
 debugpy
+EyeDiagnosisLib
