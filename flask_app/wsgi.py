@@ -1,21 +1,12 @@
-from app import app as application
+from app import server
 
-app = application
-print ("wsgi_print_main")
-print(__name__)
+server.config['DEBUG'] = False
+print (f"wsgi_print_main:{__name__}")
 
 if __name__ == "__main__":
-    print ("wsgi_print_main_1")
-    app.run(host='0.0.0.0', port=8001)
-    print ("wsgi_print_main_2")
+    print (f"Running Server from:{__name__}")
+    server.run(host='0.0.0.0', port=8001)
 
 if __name__ == "wsgi":
-    print ("wsgi_print_main_3")
-    app.run(host='0.0.0.0', port=8001)
-    #app.run
-    print ("wsgi_print_main_4")
-
-#if __name__ == "__main__":
-#    print ("wsgi_print_main_1")
-#    app.run(host='0.0.0.0', port=8001)
-#    print ("wsgi_print_main_2")
+    print (f"Running Server from:{__name__}")
+    server.run(host='0.0.0.0', port=8001)

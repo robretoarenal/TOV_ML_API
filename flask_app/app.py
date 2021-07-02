@@ -26,7 +26,7 @@ import tensorflow as tf
 from GazeML_keras import diagnose
 #from EyeDiagnosisLib import GazeML_keras
 
-app = Flask(__name__)
+server = Flask(__name__)
 
 
 def crossdomain(origin=None, methods=None, headers=None, max_age=21600,
@@ -95,7 +95,7 @@ def normalize_input(x, mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)):
     return ((x / 255) - mean) / std
 
 
-@app.route('/', methods=['GET', 'POST'])
+@server.route('/', methods=['GET', 'POST'])
 def main_get():
     if request.method == 'GET':
         return 'The InnoSpark models are up and running. GET is not degined at this moment. Send a POST request LVEA'
@@ -104,7 +104,7 @@ def main_get():
         return run_request()
 
 
-@app.route('/predictrfc', methods=['GET', 'POST'])
+@server.route('/predictrfc', methods=['GET', 'POST'])
 def predictrfc():
     """API Call
     """
@@ -144,7 +144,7 @@ def predictrfc():
     return (responses)
 
 
-@app.route('/predictrfc2', methods=['GET', 'POST'])
+@server.route('/predictrfc2', methods=['GET', 'POST'])
 def predictrfc2():
     """API Call
     """
@@ -192,7 +192,7 @@ def predictrfc2():
     return (responses)
 
 
-@app.route('/predicteyedisease', methods=['POST'])
+@server.route('/predicteyedisease', methods=['POST'])
 def predicteyedisease():
     """API Call
     """
@@ -237,7 +237,7 @@ def predicteyedisease():
     return (responses)
 
 
-@app.route('/parseimage', methods=['POST'])
+@server.route('/parseimage', methods=['POST'])
 def parseimage():
     """API Call
     """
@@ -348,27 +348,37 @@ def write_reponse_image(image_64_encode):
     image_result = open(tmp_img_name, 'wb') # create a writable image and write the decoding result
     image_result.write(image_64_decode)
 
-@app.route('/eyesDiagnosis', methods=['POST'])
+@server.route('/eyesDiagnosis', methods=['POST'])
 def eyesDiagnosis():
     try:
         print('Entering eyediagnosis method', file=sys.stderr)
 
+        data = []
+        response_msg = ""
+        status_code = 200
+
         request_file = request.files['file']
         request_image = Image.open(request_file)
-        numpydata = np.asarray(request_image)
+        
+        numpydata = np.array(request_image)
+        if numpydata.ndim >  2 and numpydata.shape[2] > 3:
+            numpydata = numpydata[...,:3]
+        else:
+            numpydata = numpydata[...,::-1]
+
+        #numpydata = np.asarray(request_image)[...,::-1]
 
         detect_model_path = 'mtcnn_weights'
         diagnosis_model_path='accuracy-92size100x100_Threshold_0.56.h5'
         left_eye_im , left_eye_im_desc , left_eye_im_diagnosis , right_eye_im , right_eye_im_desc , right_eye_im_diagnosis = diagnose.Diagnose().Diagnose_patient(numpydata,detect_model_path,diagnosis_model_path)
         
-        data = []
-        response_msg = ""
+        #print(f"Response msg:{response_msg}")
         if isinstance(left_eye_im, str) or isinstance(right_eye_im, str):
             response_msg = left_eye_im
         else:
             #TODO: Comment these two lines, they're created just to test the way the front end can consume this endpoint
-            write_reponse_image(get_response_image(left_eye_im))
-            write_reponse_image(get_response_image(right_eye_im))
+            #write_reponse_image(get_response_image(left_eye_im))
+            #write_reponse_image(get_response_image(right_eye_im))
             
             response_msg = "success"
 
@@ -380,34 +390,42 @@ def eyesDiagnosis():
                 "right_eye_im_desc":right_eye_im_desc,
                 "right_eye_im_diagnosis":str(right_eye_im_diagnosis[0])
             })
-    except:
-            responses = jsonify(
-                message="failure",
-                category="prediction",
-                data=[],
-                status=400
-            )
-            responses.status_code = 400
+    except Exception as e:
+        status_code = 400
+        response_msg = e.message
+        #    responses = jsonify(
+        #        message="failure " + e.message,
+        #        category="prediction",
+        #        data=[],
+        #        status=400
+        #    )
+        #    responses.status_code = 400
     finally:
-            responses = jsonify(
-                message=response_msg,
-                category="prediction",
-                data=data,
-                status=200
-            )
-            responses.status_code = 200
+        responses = jsonify(
+            message=response_msg,
+            category="prediction",
+            data=data,
+            status=status_code
+        )
+        responses.status_code = status_code
 
     return (responses)
 
 
 
 def main():
-    #app.run(debug=True)
-    app.run()
-    logging.basicConfig(filename='myapp.log', level=logging.DEBUG)
-    logging.info('Started')
-    #mylib.do_something()
-    logging.info('Finished')
+    # use 0.0.0.0 to use it in container
+    server.run(host='0.0.0.0')
+
+#    #app.run(debug=True)
+#    print (f"app_print_main:{__name__}", file=sys.stderr)
+#    if __name__ == '__main__':
+#        app.run()
+    
+ #       logging.basicConfig(filename='myapp.log', level=logging.DEBUG)
+ #       logging.info('Started')
+ #       #mylib.do_something()
+ #       logging.info('Finished')
 
 
 if __name__ == '__main__':
